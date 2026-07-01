@@ -8,16 +8,14 @@ class DespesaFixa(Base):
     __tablename__ = "despesas_fixas"
     id = Column(Integer, primary_key=True)
     descricao = Column(String(150), nullable=False)
-    valor = Column(Numeric(12, 2), nullable=False)          # valor total (ou da parcela se parcelado)
+    valor = Column(Numeric(12, 2), nullable=False)
     dia_vencimento = Column(Integer)
     categoria = Column(String(50))
     ativo = Column(Boolean, default=True)
-    # --- PARCELAMENTO ---
     parcelado = Column(Boolean, default=False)
-    total_parcelas = Column(Integer, nullable=True)          # ex: 12
-    parcela_atual = Column(Integer, nullable=True)           # ex: 3
-    valor_total_parcelado = Column(Numeric(12, 2), nullable=True)  # valor total da compra
-    # --- PAGAMENTO ---
+    total_parcelas = Column(Integer, nullable=True)
+    parcela_atual = Column(Integer, nullable=True)
+    valor_total_parcelado = Column(Numeric(12, 2), nullable=True)
     pago = Column(Boolean, default=False)
     data_pagamento = Column(Date, nullable=True)
     criado_em = Column(DateTime, server_default=func.now())
@@ -43,7 +41,6 @@ class Investimento(Base):
     quantidade = Column(Numeric(18, 8), default=0)
     preco_medio = Column(Numeric(18, 8), default=0)
     criado_em = Column(DateTime, server_default=func.now())
-
     aportes = relationship("Aporte", back_populates="investimento")
     cotacoes = relationship("CotacaoHistorico", back_populates="investimento")
 
@@ -57,7 +54,6 @@ class Aporte(Base):
     preco_unitario = Column(Numeric(18, 8), nullable=False)
     data = Column(Date, nullable=False)
     criado_em = Column(DateTime, server_default=func.now())
-
     investimento = relationship("Investimento", back_populates="aportes")
 
 
@@ -69,7 +65,6 @@ class CotacaoHistorico(Base):
     valor_total = Column(Numeric(18, 2), nullable=False)
     data_referencia = Column(Date, nullable=False)
     criado_em = Column(DateTime, server_default=func.now())
-
     investimento = relationship("Investimento", back_populates="cotacoes")
     __table_args__ = (UniqueConstraint("investimento_id", "data_referencia"),)
 
@@ -91,8 +86,8 @@ class Receita(Base):
     id = Column(Integer, primary_key=True)
     descricao = Column(String(150), nullable=False)
     valor = Column(Numeric(12, 2), nullable=False)
-    tipo = Column(String(20), nullable=False)   # 'fixo' ou 'variavel'
+    tipo = Column(String(20), nullable=False)
     data = Column(Date, nullable=False)
-    categoria = Column(String(50))              # salario, freelance, dividendo, bonus, outros
-    recorrente = Column(Boolean, default=False) # salário todo mês?
+    categoria = Column(String(50))
+    recorrente = Column(Boolean, default=False)
     criado_em = Column(DateTime, server_default=func.now())
