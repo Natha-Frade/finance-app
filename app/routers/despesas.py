@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import extract
 from .. import models, schemas
 from ..database import get_db
 
@@ -33,7 +34,6 @@ def marcar_pago(despesa_id: int, body: schemas.DespesaFixaPagoIn, db: Session = 
 
 @router.patch("/fixas/{despesa_id}/parcela")
 def avancar_parcela(despesa_id: int, db: Session = Depends(get_db)):
-    """Avança a parcela atual em +1 e reseta o status de pago para o próximo mês."""
     despesa = db.query(models.DespesaFixa).get(despesa_id)
     if not despesa or not despesa.parcelado:
         raise HTTPException(404, "Despesa parcelada não encontrada")
@@ -42,7 +42,6 @@ def avancar_parcela(despesa_id: int, db: Session = Depends(get_db)):
         despesa.pago = False
         despesa.data_pagamento = None
     else:
-        # quitou tudo — desativa
         despesa.ativo = False
     db.commit()
     return {"ok": True, "parcela_atual": despesa.parcela_atual, "ativo": despesa.ativo}
@@ -81,5 +80,9 @@ def marcar_variavel_pago(gasto_id: int, body: schemas.DespesaFixaPagoIn, db: Ses
 def listar_gastos_variaveis(mes: str | None = None, db: Session = Depends(get_db)):
     query = db.query(models.GastoVariavel)
     if mes:
-        query = query.filter(models.GastoVariavel.data.like(f"{mes}%"))
+        ano, m = mes.split("-")
+        query = query.filter(
+            extract("year", models.GastoVariavel.data) == int(ano),
+            extract("month", models.GastoVariavel.data) == int(m)
+        )
     return query.order_by(models.GastoVariavel.data.desc()).all()
