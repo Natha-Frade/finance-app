@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -478,7 +478,7 @@ nav button svg{width:21px;height:21px}
 </nav>
 
 <script>
-const API='http://localhost:8000';
+const API=location.hostname==='localhost'||location.hostname==='127.0.0.1'?'http://localhost:8000':'';
 const fmt=v=>v==null?'R$ 0,00':new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v);
 const fmtNum=(v,d=4)=>Number(v||0).toLocaleString('pt-BR',{maximumFractionDigits:d});
 const today=()=>new Date().toISOString().split('T')[0];
@@ -864,4 +864,3 @@ loadDashboard();
 </script>
 </body>
 </html>
-
