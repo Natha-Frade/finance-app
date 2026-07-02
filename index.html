@@ -690,7 +690,13 @@ function renderGastosVariaveis(gastos){
         <div class="gasto-sub">${new Date(g.data+'T12:00:00').toLocaleDateString('pt-BR')} · ${g.categoria||'outros'}</div>
       </div>
       <div class="gasto-valor">${fmt(g.valor)}</div>
+      <button class="btn-danger-sm" onclick="deletarGastoVariavel(${g.id})" style="flex-shrink:0">✕</button>
     </div>`).join('');
+}
+
+async function deletarGastoVariavel(id){
+  if(!confirm('Remover este gasto?'))return;
+  await api('DELETE',`/despesas/variaveis/${id}`);showToast('Removido');loadDespesas();
 }
 
 async function loadGastosVariaveisMes(mes){
@@ -781,9 +787,13 @@ async function loadInvestimentos(){
         <div class="inv-stat"><div class="inv-stat-label">Preço médio</div><div class="inv-stat-value">${fmt(pm)}</div></div>
         <div class="inv-stat"><div class="inv-stat-label">Total custo</div><div class="inv-stat-value">${fmt(qtd*pm)}</div></div>
       </div>
-      <div style="margin-top:12px"><button class="btn-sm" style="width:100%" onclick="abrirModalAporte(${inv.id},'${inv.ativo}')">+ Registrar aporte</button></div>
+      <div style="margin-top:12px;display:flex;gap:8px"><button class="btn-sm" style="flex:1" onclick="abrirModalAporte(${inv.id},'${inv.ativo}')">+ Registrar aporte</button><button class="btn-danger-sm" onclick="deletarInvestimento(${inv.id})">Remover</button></div>
     </div>`;
   }).join('');
+}
+async function deletarInvestimento(id){
+  if(!confirm('Remover este ativo e todos os aportes dele?'))return;
+  await api('DELETE',`/investimentos/${id}`);showToast('Removido');loadInvestimentos();
 }
 function abrirModalAporte(id,nome){document.getElementById('aporte-inv-id').value=id;document.getElementById('modal-aporte-title').textContent=`Aporte em ${nome}`;document.getElementById('aporte-data').value=today();openModal('modal-aporte');}
 async function salvarAporte(){
