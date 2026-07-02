@@ -1,93 +1,97 @@
-from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, Boolean, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from .database import Base
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import text
+import os
+
+from .database import engine, Base, SessionLocal
+from .routers import despesas, investimentos, resumo, receitas
+from .services import cotacoes
+from . import models, auth
+
+# Cria as tabelas que ainda não existem
+Base.metadata.create_all(bind=engine)
+
+# Migrations simples: adiciona colunas novas em tabelas já existentes.
+# Cada comando roda isolado e falhas são ignoradas (coluna já existe, etc).
+MIGRACOES = [
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcelado BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS total_parcelas INTEGER",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcela_atual INTEGER",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS valor_total_parcelado NUMERIC(12,2)",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS data_pagamento DATE",
+    "ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE receitas ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE investimentos ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE resumo_mensal ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE resumo_mensal DROP CONSTRAINT IF EXISTS resumo_mensal_mes_referencia_key",
+]
+for comando in MIGRACOES:
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(comando))
+    except Exception:
+        pass
+
+app = FastAPI(title="Controle Financeiro - Nathã")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # restrinja em produção
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router)
+app.include_router(despesas.router)
+app.include_router(investimentos.router)
+app.include_router(resumo.router)
+app.include_router(receitas.router)
 
 
-class DespesaFixa(Base):
-    __tablename__ = "despesas_fixas"
-    id = Column(Integer, primary_key=True)
-    descricao = Column(String(150), nullable=False)
-    valor = Column(Numeric(12, 2), nullable=False)
-    dia_vencimento = Column(Integer)
-    categoria = Column(String(50))
-    ativo = Column(Boolean, default=True)
-    parcelado = Column(Boolean, default=False)
-    total_parcelas = Column(Integer, nullable=True)
-    parcela_atual = Column(Integer, nullable=True)
-    valor_total_parcelado = Column(Numeric(12, 2), nullable=True)
-    pago = Column(Boolean, default=False)
-    data_pagamento = Column(Date, nullable=True)
-    criado_em = Column(DateTime, server_default=func.now())
+@app.get("/")
+def root():
+    f = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "index.html"))
+    return FileResponse(f)
 
 
-class GastoVariavel(Base):
-    __tablename__ = "gastos_variaveis"
-    id = Column(Integer, primary_key=True)
-    descricao = Column(String(150), nullable=False)
-    valor = Column(Numeric(12, 2), nullable=False)
-    categoria = Column(String(50))
-    data = Column(Date, nullable=False)
-    pago = Column(Boolean, default=False)
-    criado_em = Column(DateTime, server_default=func.now())
+# --------- Job automático: atualiza cotações 1x por dia ---------
+def job_atualizar_cotacoes():
+    from datetime import date
+    db = SessionLocal()
+    try:
+        investimentos_db = db.query(models.Investimento).all()
+        hoje = date.today()
+        for inv in investimentos_db:
+            if not inv.ticker:
+                continue
+            try:
+                preco = cotacoes.buscar_preco(inv.tipo, inv.ticker)
+            except Exception:
+                continue
+            valor_total = float(inv.quantidade) * preco
+            existente = (
+                db.query(models.CotacaoHistorico)
+                .filter_by(investimento_id=inv.id, data_referencia=hoje)
+                .first()
+            )
+            if existente:
+                existente.preco = preco
+                existente.valor_total = valor_total
+            else:
+                db.add(models.CotacaoHistorico(
+                    investimento_id=inv.id, preco=preco,
+                    valor_total=valor_total, data_referencia=hoje,
+                ))
+        db.commit()
+    finally:
+        db.close()
 
 
-class Investimento(Base):
-    __tablename__ = "investimentos"
-    id = Column(Integer, primary_key=True)
-    tipo = Column(String(30), nullable=False)
-    ativo = Column(String(50), nullable=False)
-    ticker = Column(String(20))
-    quantidade = Column(Numeric(18, 8), default=0)
-    preco_medio = Column(Numeric(18, 8), default=0)
-    criado_em = Column(DateTime, server_default=func.now())
-    aportes = relationship("Aporte", back_populates="investimento")
-    cotacoes = relationship("CotacaoHistorico", back_populates="investimento")
-
-
-class Aporte(Base):
-    __tablename__ = "aportes"
-    id = Column(Integer, primary_key=True)
-    investimento_id = Column(Integer, ForeignKey("investimentos.id"))
-    valor_aportado = Column(Numeric(12, 2), nullable=False)
-    quantidade_comprada = Column(Numeric(18, 8), nullable=False)
-    preco_unitario = Column(Numeric(18, 8), nullable=False)
-    data = Column(Date, nullable=False)
-    criado_em = Column(DateTime, server_default=func.now())
-    investimento = relationship("Investimento", back_populates="aportes")
-
-
-class CotacaoHistorico(Base):
-    __tablename__ = "cotacoes_historico"
-    id = Column(Integer, primary_key=True)
-    investimento_id = Column(Integer, ForeignKey("investimentos.id"))
-    preco = Column(Numeric(18, 8), nullable=False)
-    valor_total = Column(Numeric(18, 2), nullable=False)
-    data_referencia = Column(Date, nullable=False)
-    criado_em = Column(DateTime, server_default=func.now())
-    investimento = relationship("Investimento", back_populates="cotacoes")
-    __table_args__ = (UniqueConstraint("investimento_id", "data_referencia"),)
-
-
-class ResumoMensal(Base):
-    __tablename__ = "resumo_mensal"
-    id = Column(Integer, primary_key=True)
-    mes_referencia = Column(Date, nullable=False, unique=True)
-    total_despesas_fixas = Column(Numeric(12, 2))
-    total_gastos_variaveis = Column(Numeric(12, 2))
-    total_investido_mes = Column(Numeric(12, 2))
-    patrimonio_total_investimentos = Column(Numeric(14, 2))
-    saldo_final = Column(Numeric(12, 2))
-    criado_em = Column(DateTime, server_default=func.now())
-
-
-class Receita(Base):
-    __tablename__ = "receitas"
-    id = Column(Integer, primary_key=True)
-    descricao = Column(String(150), nullable=False)
-    valor = Column(Numeric(12, 2), nullable=False)
-    tipo = Column(String(20), nullable=False)
-    data = Column(Date, nullable=False)
-    categoria = Column(String(50))
-    recorrente = Column(Boolean, default=False)
-    criado_em = Column(DateTime, server_default=func.now())
+scheduler = BackgroundScheduler()
+scheduler.add_job(job_atualizar_cotacoes, "cron", hour=18, minute=0)  # roda todo dia às 18h
+scheduler.start()
