@@ -13,6 +13,19 @@ from . import models
 # Cria as tabelas automaticamente (em produção, prefira Alembic pra migrations)
 Base.metadata.create_all(bind=engine)
 
+from sqlalchemy import text
+
+with engine.begin() as conn:
+    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcelado BOOLEAN DEFAULT FALSE"))
+    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS total_parcelas INTEGER"))
+    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcela_atual INTEGER"))
+    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS valor_total_parcelado NUMERIC(12,2)"))
+    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE"))
+    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS data_pagamento DATE"))
+    conn.execute(text("ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE"))
+
+
+
 app = FastAPI(title="Controle Financeiro - Nathã")
 
 app.add_middleware(
