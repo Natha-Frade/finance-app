@@ -46,3 +46,16 @@ def registrar_aporte(aporte: schemas.AporteIn, db: Session = Depends(get_db)):
 @router.get("/{investimento_id}/aportes", response_model=list[schemas.AporteOut])
 def listar_aportes(investimento_id: int, db: Session = Depends(get_db)):
     return db.query(models.Aporte).filter(models.Aporte.investimento_id == investimento_id).all()
+
+
+@router.delete("/{investimento_id}")
+def deletar_investimento(investimento_id: int, db: Session = Depends(get_db)):
+    inv = db.query(models.Investimento).get(investimento_id)
+    if not inv:
+        raise HTTPException(404, "Investimento não encontrado")
+    # remove aportes e histórico de cotações antes (chaves estrangeiras)
+    db.query(models.Aporte).filter(models.Aporte.investimento_id == investimento_id).delete()
+    db.query(models.CotacaoHistorico).filter(models.CotacaoHistorico.investimento_id == investimento_id).delete()
+    db.delete(inv)
+    db.commit()
+    return {"ok": True}
