@@ -1,30 +1,41 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import text
 import os
 
 from .database import engine, Base, SessionLocal
 from .routers import despesas, investimentos, resumo, receitas
 from .services import cotacoes
-from . import models
+from . import models, auth
 
-# Cria as tabelas automaticamente (em produção, prefira Alembic pra migrations)
+# Cria as tabelas que ainda não existem
 Base.metadata.create_all(bind=engine)
 
-from sqlalchemy import text
-
-with engine.begin() as conn:
-    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcelado BOOLEAN DEFAULT FALSE"))
-    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS total_parcelas INTEGER"))
-    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcela_atual INTEGER"))
-    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS valor_total_parcelado NUMERIC(12,2)"))
-    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE"))
-    conn.execute(text("ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS data_pagamento DATE"))
-    conn.execute(text("ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE"))
-
-
+# Migrations simples: adiciona colunas novas em tabelas já existentes.
+# Cada comando roda isolado e falhas são ignoradas (coluna já existe, etc).
+MIGRACOES = [
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcelado BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS total_parcelas INTEGER",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcela_atual INTEGER",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS valor_total_parcelado NUMERIC(12,2)",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS data_pagamento DATE",
+    "ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE receitas ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE investimentos ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE resumo_mensal ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
+    "ALTER TABLE resumo_mensal DROP CONSTRAINT IF EXISTS resumo_mensal_mes_referencia_key",
+]
+for comando in MIGRACOES:
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(comando))
+    except Exception:
+        pass
 
 app = FastAPI(title="Controle Financeiro - Nathã")
 
@@ -35,6 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(despesas.router)
 app.include_router(investimentos.router)
 app.include_router(resumo.router)
@@ -43,7 +55,6 @@ app.include_router(receitas.router)
 
 @app.get("/")
 def root():
-    import os
     f = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "index.html"))
     return FileResponse(f)
 
