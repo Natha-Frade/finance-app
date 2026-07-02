@@ -4,3 +4,4 @@ sqlalchemy
 requests
 apscheduler
 pydantic
+psycopg2-binary
