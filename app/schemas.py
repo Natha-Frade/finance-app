@@ -84,3 +84,21 @@ class ReceitaOut(ReceitaIn):
     id: int
     class Config:
         from_attributes = True
+
+
+# ===== Autenticação =====
+class LoginIn(BaseModel):
+    nome: str
+    senha: str
+
+
+class TokenOut(BaseModel):
+    token: str
+    nome: str
+
+
+class UsuarioOut(BaseModel):
+    id: int
+    nome: str
+    class Config:
+        from_attributes = True
