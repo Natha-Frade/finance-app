@@ -1,11 +1,20 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import extract
 from .. import models
 from ..database import get_db
 from ..services import cotacoes
 
 router = APIRouter(tags=["Cotações e Resumo"])
+
+
+def filtro_mes(query, coluna, mes: str):
+    ano, mes_num = mes.split("-")
+    return query.filter(
+        extract("year", coluna) == int(ano),
+        extract("month", coluna) == int(mes_num),
+    )
 
 
 @router.post("/cotacoes/atualizar")
@@ -43,17 +52,17 @@ def gerar_resumo_mensal(mes: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "Formato de mês inválido. Use YYYY-MM")
 
     # Receitas do mês
-    receitas_mes = db.query(models.Receita).filter(models.Receita.data.like(f"{mes}%")).all()
+    receitas_mes = filtro_mes(db.query(models.Receita), models.Receita.data, mes).all()
     total_receitas = sum(float(r.valor) for r in receitas_mes)
     total_receitas_fixas = sum(float(r.valor) for r in receitas_mes if r.tipo == 'fixo')
     total_receitas_variaveis = sum(float(r.valor) for r in receitas_mes if r.tipo == 'variavel')
 
     # Despesas
     total_fixas = sum(float(d.valor) for d in db.query(models.DespesaFixa).filter_by(ativo=True))
-    total_variaveis = sum(float(g.valor) for g in db.query(models.GastoVariavel).filter(models.GastoVariavel.data.like(f"{mes}%")))
+    total_variaveis = sum(float(g.valor) for g in filtro_mes(db.query(models.GastoVariavel), models.GastoVariavel.data, mes))
 
     # Aportes do mês
-    total_investido = sum(float(a.valor_aportado) for a in db.query(models.Aporte).filter(models.Aporte.data.like(f"{mes}%")))
+    total_investido = sum(float(a.valor_aportado) for a in filtro_mes(db.query(models.Aporte), models.Aporte.data, mes))
 
     # Patrimônio total
     patrimonio = 0.0
