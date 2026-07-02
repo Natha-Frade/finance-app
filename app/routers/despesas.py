@@ -86,3 +86,13 @@ def listar_gastos_variaveis(mes: str | None = None, db: Session = Depends(get_db
             extract("month", models.GastoVariavel.data) == int(m)
         )
     return query.order_by(models.GastoVariavel.data.desc()).all()
+
+
+@router.delete("/variaveis/{gasto_id}")
+def deletar_gasto_variavel(gasto_id: int, db: Session = Depends(get_db)):
+    gasto = db.query(models.GastoVariavel).get(gasto_id)
+    if not gasto:
+        raise HTTPException(404, "Gasto não encontrado")
+    db.delete(gasto)
+    db.commit()
+    return {"ok": True}
