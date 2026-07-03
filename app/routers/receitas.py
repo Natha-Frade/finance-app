@@ -1,97 +1,49 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import text
-import os
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import extract
+from .. import models, schemas
+from ..database import get_db
+from ..auth import get_usuario_atual
 
-from .database import engine, Base, SessionLocal
-from .routers import despesas, investimentos, resumo, receitas
-from .services import cotacoes
-from . import models, auth
-
-# Cria as tabelas que ainda não existem
-Base.metadata.create_all(bind=engine)
-
-# Migrations simples: adiciona colunas novas em tabelas já existentes.
-# Cada comando roda isolado e falhas são ignoradas (coluna já existe, etc).
-MIGRACOES = [
-    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcelado BOOLEAN DEFAULT FALSE",
-    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS total_parcelas INTEGER",
-    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS parcela_atual INTEGER",
-    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS valor_total_parcelado NUMERIC(12,2)",
-    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE",
-    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS data_pagamento DATE",
-    "ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS pago BOOLEAN DEFAULT FALSE",
-    "ALTER TABLE despesas_fixas ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
-    "ALTER TABLE gastos_variaveis ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
-    "ALTER TABLE receitas ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
-    "ALTER TABLE investimentos ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
-    "ALTER TABLE resumo_mensal ADD COLUMN IF NOT EXISTS usuario_id INTEGER",
-    "ALTER TABLE resumo_mensal DROP CONSTRAINT IF EXISTS resumo_mensal_mes_referencia_key",
-]
-for comando in MIGRACOES:
-    try:
-        with engine.begin() as conn:
-            conn.execute(text(comando))
-    except Exception:
-        pass
-
-app = FastAPI(title="Controle Financeiro - Nathã")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # restrinja em produção
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(auth.router)
-app.include_router(despesas.router)
-app.include_router(investimentos.router)
-app.include_router(resumo.router)
-app.include_router(receitas.router)
+router = APIRouter(prefix="/receitas", tags=["Receitas"])
 
 
-@app.get("/")
-def root():
-    f = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "index.html"))
-    return FileResponse(f)
+def filtro_mes(query, coluna, mes: str):
+    ano, mes_num = mes.split("-")
+    return query.filter(
+        extract("year", coluna) == int(ano),
+        extract("month", coluna) == int(mes_num),
+    )
 
 
-# --------- Job automático: atualiza cotações 1x por dia ---------
-def job_atualizar_cotacoes():
-    from datetime import date
-    db = SessionLocal()
-    try:
-        investimentos_db = db.query(models.Investimento).all()
-        hoje = date.today()
-        for inv in investimentos_db:
-            if not inv.ticker:
-                continue
-            try:
-                preco = cotacoes.buscar_preco(inv.tipo, inv.ticker)
-            except Exception:
-                continue
-            valor_total = float(inv.quantidade) * preco
-            existente = (
-                db.query(models.CotacaoHistorico)
-                .filter_by(investimento_id=inv.id, data_referencia=hoje)
-                .first()
-            )
-            if existente:
-                existente.preco = preco
-                existente.valor_total = valor_total
-            else:
-                db.add(models.CotacaoHistorico(
-                    investimento_id=inv.id, preco=preco,
-                    valor_total=valor_total, data_referencia=hoje,
-                ))
-        db.commit()
-    finally:
-        db.close()
+@router.post("", response_model=schemas.ReceitaOut)
+def criar_receita(receita: schemas.ReceitaIn, db: Session = Depends(get_db),
+                  usuario: models.Usuario = Depends(get_usuario_atual)):
+    db_rec = models.Receita(**receita.model_dump(), usuario_id=usuario.id)
+    db.add(db_rec)
+    db.commit()
+    db.refresh(db_rec)
+    return db_rec
 
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(job_atualizar_cotacoes, "cron", hour=18, minute=0)  # roda todo dia às 18h
-scheduler.start()
+@router.get("", response_model=list[schemas.ReceitaOut])
+def listar_receitas(mes: str | None = None, db: Session = Depends(get_db),
+                    usuario: models.Usuario = Depends(get_usuario_atual)):
+    query = db.query(models.Receita).filter(models.Receita.usuario_id == usuario.id)
+    if mes:
+        query = filtro_mes(query, models.Receita.data, mes)
+    return query.order_by(models.Receita.data.desc()).all()
+
+
+@router.delete("/{receita_id}")
+def deletar_receita(receita_id: int, db: Session = Depends(get_db),
+                    usuario: models.Usuario = Depends(get_usuario_atual)):
+    rec = (db.query(models.Receita)
+           .filter(models.Receita.id == receita_id,
+                   models.Receita.usuario_id == usuario.id)
+           .first())
+    if not rec:
+        raise HTTPException(404, "Receita não encontrada")
+    db.delete(rec)
+    db.commit()
+    return {"ok": True}
